@@ -23,6 +23,10 @@ async function getConvertKitSubscriber(email) {
   return subscriber?.state === 'active' ? subscriber : null
 }
 
+function isSalesforce(email) {
+  return email === 'nutlope+discordtest@gmail.com'
+}
+
 const allSteps = [
   {
     name: 'name',
@@ -69,10 +73,14 @@ const allSteps = [
     name: 'email',
     question: `**What's your email address?** (This will look you up on Turborepo's mailing list. If you're not already on it, you'll be added and will receive a confirmation email.)`,
     feedback: async answers => {
-      if (await getConvertKitSubscriber(answers.email)) {
-        return `Oh, nice, ${answers.email} is already a part of Turborepo's mailing list (you rock 🤘), so you won't be getting a confirmation email after all.`
+      if (isSalesforce(answers.email)) {
+        return `Awesome!`
+      } else {
+        if (await getConvertKitSubscriber(answers.email)) {
+          return `Oh, nice, ${answers.email} is already a part of Turborepo's mailing list (you rock 🤘), so you won't be getting a confirmation email after all.`
+        }
+        return `Awesome, when we're done here, you'll receive a confirmation email to: ${answers.email}.`
       }
-      return `Awesome, when we're done here, you'll receive a confirmation email to: ${answers.email}.`
     },
     getAnswer: messageContents =>
       messageContents.match(
@@ -89,7 +97,11 @@ const allSteps = [
       }
       // before checking whether it's a disposable email
       // let's check whether they're a subscriber first...
-      if (await getConvertKitSubscriber(response)) return
+      if (isSalesforce(response)) {
+        // Remove this after the salesforce feature is live
+      } else {
+        if (await getConvertKitSubscriber(response)) return
+      }
 
       // let's make sure the given email isn't a disposable email
       try {
@@ -156,7 +168,7 @@ const allSteps = [
       `
 Here are your answers:
   First Name: ${answers.name}
-  Email: ${answers.email}  
+  Email: ${answers.email}
 
 If you'd like to change any, then edit your responses above.
 
@@ -185,45 +197,60 @@ If you'd like to change any, then edit your responses above.
       const discordTagId = '1960709'
       const discordForm = '1939703'
       let checkEmail = ''
-      if (subscriber) {
-        await got.post(
-          `https://api.convertkit.com/v3/tags/${discordTagId}/subscribe`,
-          {
-            responseType: 'json',
-            json: {
-              api_key: CONVERT_KIT_API_KEY,
-              api_secret: CONVERT_KIT_API_SECRET,
-              first_name: answers.name,
+
+      if (isSalesforce(answers.email)) {
+        await got.post(process.env.TRAY_SALESFORCE_ONBOARD_URL, {
+          responseType: 'json',
+          json: {
+            user: {
+              name: answers.name,
               email: answers.email,
-              fields: {discord_user_id: member.id},
+              campaign_id: process.env.SALESFORCE_CAMPAIGN_ID,
             },
           },
-        )
+        })
       } else {
-        // the main deifference in subscribing to a tag and subscribing to a
-        // form is that in the form's case, the user will get a double opt-in
-        // email before they're a confirmed subscriber. So we only add the
-        // tag to existing subscribers who have already confirmed.
-        await got.post(
-          `https://api.convertkit.com/v3/forms/${discordForm}/subscribe`,
-          {
-            responseType: 'json',
-            json: {
-              api_key: CONVERT_KIT_API_KEY,
-              api_secret: CONVERT_KIT_API_SECRET,
-              first_name: answers.name,
-              email: answers.email,
-              fields: {discord_user_id: member.id},
-              // It would make sense to include the tag here, however, doing this
-              // will auto-confirm this new subscriber (no double-opt-in) which
-              // we do not want to do. Luckily, the discordForm adds this tag
-              // automatically so we don't need it anyway.
-              // tags: [discordTagId],
+        if (subscriber) {
+          await got.post(
+            `https://api.convertkit.com/v3/tags/${discordTagId}/subscribe`,
+            {
+              responseType: 'json',
+              json: {
+                api_key: CONVERT_KIT_API_KEY,
+                api_secret: CONVERT_KIT_API_SECRET,
+                first_name: answers.name,
+                email: answers.email,
+                fields: {discord_user_id: member.id},
+              },
             },
-          },
-        )
-        checkEmail = `Don't forget to check ${answers.email} for a confirmation email. 📬`
+          )
+        } else {
+          // the main deifference in subscribing to a tag and subscribing to a
+          // form is that in the form's case, the user will get a double opt-in
+          // email before they're a confirmed subscriber. So we only add the
+          // tag to existing subscribers who have already confirmed.
+          await got.post(
+            `https://api.convertkit.com/v3/forms/${discordForm}/subscribe`,
+            {
+              responseType: 'json',
+              json: {
+                api_key: CONVERT_KIT_API_KEY,
+                api_secret: CONVERT_KIT_API_SECRET,
+                first_name: answers.name,
+                email: answers.email,
+                fields: {discord_user_id: member.id},
+                // It would make sense to include the tag here, however, doing this
+                // will auto-confirm this new subscriber (no double-opt-in) which
+                // we do not want to do. Luckily, the discordForm adds this tag
+                // automatically so we don't need it anyway.
+                // tags: [discordTagId],
+              },
+            },
+          )
+          checkEmail = `Don't forget to check ${answers.email} for a confirmation email. 📬`
+        }
       }
+
       await send(
         `
 🎉 You should be good to go now. ${checkEmail}
